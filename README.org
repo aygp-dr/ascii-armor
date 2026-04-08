@@ -58,6 +58,16 @@ The solutions all converge on the same structure:
 | 2005 | Git binary    | Patch files                 | ~25%     |
 | 2018 | org-mode      | Literate programming        | ~33%     |
 
+** Serial/Modem Variants (the direct ancestors)
+
+| Year | Format    | Channel Constraint            | Notes                        |
+|------+-----------+-------------------------------+------------------------------|
+| 1977 | XMODEM    | Serial/modem (async)          | 128B blocks, checksum        |
+| 1985 | YMODEM    | Serial/modem (async)          | 1K blocks, batch mode        |
+| 1986 | ZMODEM    | Serial/modem (async)          | Streaming, Ctrl-char escape  |
+| 1988 | SLIP      | Serial line (IP)              | END=0xC0, ESC=0xDB framing   |
+| 1994 | PPP       | Serial line (IP)              | HDLC 0x7E framing, 0x7D esc  |
+
 ** Audio/Radio Variants (same pattern, different channel)
 
 | Year | Format           | Channel Constraint              | Notes                    |
