@@ -1,0 +1,842 @@
+#+TITLE: Inline Binary in Text: A Cross-System History
+#+SUBTITLE: From uuencode to org-mode — the recurring pattern of embedding binary data in text channels
+#+AUTHOR: J. Walsh
+#+DATE: 2026-04-07
+#+OPTIONS: toc:3 num:t ^:nil
+#+STARTUP: overview
+
+* Abstract
+
+A single constraint recurs across six decades of computing: a binary
+artifact must survive transit through a channel that only tolerates
+text.  The solutions converge on the same mechanism — binary-to-text
+encoding + named/delimited wrapper + decode-on-arrival — but are
+reinvented independently in each domain.  This document traces the
+lineage from Unix uuencode (1980) through MIME (1992), RFC 2397 data
+URIs (1998), and into contemporary note-taking systems and org-mode
+literate programming.
+
+The org-mode implementation in this repo uses the oldest surviving
+variant of this pattern (named named src blocks + babel eval) as a
+self-hosting demo.
+
+* The Core Pattern
+
+Every variant shares the same three-layer structure:
+
+#+begin_src markdown
+┌─────────────────────────────────────────┐
+│  HEADER   name / type / encoding hint   │
+│  PAYLOAD  ascii-safe encoded bytes      │
+│  FOOTER   end marker / checksum         │
+└─────────────────────────────────────────┘
+#+end_src
+
+The channel constraint forces the payload into a restricted alphabet
+(printable ASCII / 7-bit clean).  The overhead is 33–37%: every 3
+input bytes become 4 output characters.
+
+| Encoding    | Overhead | Alphabet size | Era   |
+|-------------+----------+---------------+-------|
+| uuencode    | 37%      | 64 (32–96)    | 1980  |
+| BinHex      | ~35%     | 64            | 1983  |
+| PEM/Base64  | 33%      | 64            | 1987  |
+| MIME Base64 | 33%      | 64            | 1992  |
+| yEnc        | ~2%      | 252           | 2001  |
+| Ascii85     | 25%      | 85            | PDF   |
+
+* Unix Lineage (1980–)
+
+** uuencode / uudecode (BSD 4.0, 1980)
+
+Written by Mary Ann Horton at UC Berkeley.  Purpose: transmit binary
+files over UUCP links that were not 8-bit clean.  The name encodes the
+constraint: /Unix-to-Unix copy/ — "without guarantee that the
+intervening links would all be Unix systems."
+
+#+begin_src text
+begin 644 cat.txt
+#0V%T
+`
+end
+#+end_src
+
+Header carries Unix permissions (~644~), filename, and a length
+character on each line (add 32 to byte count, encode as ASCII).
+
+The Python codec survived to 3.x:
+#+begin_src python :eval no
+from codecs import encode
+encode(b'Cat', 'uu')
+# b'begin 666 <data>\n#0V%T\n \nend\n'
+#+end_src
+
+** GNU shar (shell archive, James Gosling → Pinard, 1994)
+
+The shell archive extends uuencode's pattern: the /entire extraction
+script/ is the wrapper.  Binary files are uuencoded inline; text files
+are heredoc-embedded.  The file is executable sh — the decoder is the
+shell itself.
+
+#+begin_src bash :eval no
+# shar creates this structure:
+#!/bin/sh
+# This is a shell archive
+uudecode << 'END_OF_FILE'
+begin 644 image.png
+...
+END_OF_FILE
+#+end_src
+
+Key properties of shar:
+- Decoder requirement: ~/bin/sh~ only, no additional tools
+- Mixed mode: text files as heredocs, binaries as uuencoded blocks
+- Multi-part support: ~--split-size-limit~ for email size limits
+- Checksums: ~--check-existing~ md5/cksum guards
+
+The GNU manual explicitly deprecates uuencode in shar and recommends
+MIME base64, noting shar archives are still useful "for distributing
+files to systems where traditional archive utilities might not be
+available."
+
+** Pipeline idiom
+
+#+begin_src bash :eval no
+tar cf - src_tree | compress | uuencode src_tree.tar.Z | mail user@host
+#+end_src
+
+This is the archetypal Unix pipeline: compress → encode → channel.
+The recipient runs the inverse: ~uudecode~ → ~uncompress~ → ~tar xf~.
+
+* Email: MIME (1992–)
+
+** RFC 1341 / RFC 2045 — the channel problem restated
+
+SMTP was specified for 7-bit ASCII.  RFC 822 left message bodies as
+"flat US-ASCII text."  MIME (RFC 2045, November 1996, building on RFC
+1341 from 1992) generalized the encoding problem across all content
+types.
+
+The ~Content-Transfer-Encoding~ header names the encoding used:
+
+#+begin_src text
+Content-Type: image/jpeg
+Content-Transfer-Encoding: base64
+
+/9j/4AAQSkZJRgABAQE...
+#+end_src
+
+MIME Base64 descends from PEM (RFC 989, 1987) — same 64-character
+alphabet (A–Z, a–z, 0–9, +, /), same ~=~ padding suffix.  The first
+known standardized use of what is now called MIME Base64 was PEM.
+
+** RFC 2387 — multipart/related and Content-ID
+
+The ~multipart/related~ type (RFC 2387, 1998) formalizes the
+named-block pattern: each part has a ~Content-ID~ header; the root
+document references parts by ~cid:~ URI.
+
+#+begin_src text
+Content-Type: Multipart/Related; boundary=example-2;
+              start="<doc@host>"; type="text/html"
+
+--example-2
+Content-Type: text/html
+Content-ID: <doc@host>
+
+<img src="cid:img1@host">
+
+--example-2
+Content-Type: image/jpeg
+Content-ID: <img1@host>
+Content-Transfer-Encoding: BASE64
+
+/9j/4AAQ...
+--example-2--
+#+end_src
+
+This is structurally identical to:
+- A shar file with named uuencoded blocks
+- An org-mode file with named ~#+begin_src text~ blocks + ~cid:~-style
+  ~org-babel-ref-resolve~
+
+** Quoted-Printable vs Base64
+
+MIME offers two encodings as a "tradeoff between readability and
+reliability":
+
+| Method           | Use case                              | Overhead  |
+|------------------+---------------------------------------+-----------|
+| Quoted-Printable | Mostly-ASCII text (emails, headers)   | low/zero  |
+| Base64           | Binary or high-entropy data           | 33%       |
+
+RFC 2045 §6.8 notes base64 is "a higher level of confidence" vs
+Quoted-Printable "for gateways involving EBCDIC translation."
+
+* Web: Data URIs / RFC 2397 (1998–)
+
+** RFC 2397 — data: URI scheme
+
+Defined 1998.  Allows embedding file content directly in a URI:
+
+#+begin_src text
+data:[<mediatype>][;base64],<data>
+#+end_src
+
+#+begin_src html :eval no
+<!-- Inline PNG icon — eliminates one HTTP request -->
+<img src="data:image/png;base64,iVBORw0KGgo..." />
+
+<!-- SVG favicon — no /favicon.ico request -->
+<link rel="icon"
+      href="data:image/svg+xml,<svg xmlns='...'><text>🔧</text></svg>" />
+
+<!-- Base64 in CSS background -->
+.icon { background: url("data:image/gif;base64,R0lGOD...") }
+#+end_src
+
+The performance calculus is identical to shar vs tar+http: eliminate
+one round-trip at the cost of 33% size increase + loss of independent
+caching.
+
+Practical guidance from web performance research:
+- Assets <4 KB: data URI saves more than overhead costs
+- Assets in CSS: cache lifetime tied to the stylesheet (good for
+  aggressive cache scenarios, bad for independent invalidation)
+- ~gzip~/~brotli~ on the container recovers most of the 33% overhead
+  (~8–9% net increase after compression in practice)
+- SVG: do /not/ base64-encode; use percent-encoding instead (SVG is
+  already text)
+
+** Favicon inline — the canonical small-image case
+
+The favicon is the most common legitimate use of data URI embedding.
+An extra HTTP request for a 32×32 icon on every page load is
+measurable overhead; inlining eliminates it.
+
+#+begin_src html :eval no
+<link href="data:image/x-icon;base64,AAABAAEA..." rel="icon"
+      type="image/x-icon"/>
+#+end_src
+
+Measured result in one documented case: page dropped from 7 requests
+to 6, with no performance grade change.
+
+** The CDN / build-tool variant
+
+Webpack, Vite, PostCSS, and Google PageSpeed module all implement
+automatic data URI inlining below a configurable size threshold (often
+4–8 KB).  This is the industrial version of the ~/bin/sh~ self-extracting
+archive: the build tool is the encoder, the browser is the decoder.
+
+Anti-patterns documented in the wild:
+- Webpack naively inlining all ~url()~ references including fonts →
+  render-blocking stylesheet grows by hundreds of KB
+- Apple Touch Icons inlined at multiple resolutions into JS bundles →
+  shipped to all visitors including Android
+- A/B test images inlined per-experiment → script bundle grows with
+  each experiment added
+
+* Org-mode
+
+** Standard inline images: ~[[file:...]]~ + ~C-c C-x C-v~
+
+Org's ~org-toggle-inline-images~ overlays ~[[file:path]]~ links with
+the image they reference.  This is file-path-based: the image is
+external to the org file.
+
+#+begin_src org :eval no
+#+ATTR_ORG: :width 400
+[[file:~/images/mordhau.jpg]]
+#+end_src
+
+Portable only if the file path is resolvable on the target machine.
+Breaks when shared as a single file.
+
+** org-attach: the vault model
+
+~org-attach~ links images to headings via a content-addressable store
+under ~.attach/~ or a UUID-keyed directory.  The attachment directory
+travels with the org file if zipped.  This is the ~.docx~ model (a
+zip with ~word/media/image1.png~ inside), applied to org.
+
+Not truly self-contained in a single text file — still a directory.
+
+** ~data:~ URI links — the RFC 2397 equivalent
+
+As of recent Emacs/org versions (~org-inline-image-fix~,
+~misohena/org-inline-image-fix~), org can render ~[[data:image/...;base64,...]]~
+links directly:
+
+#+begin_src org :eval no
+[[data:image/jpeg;base64,/9j/4AAQ...]]
+#+end_src
+
+This is the web data URI pattern applied to org.  No /tmp/ write, no
+file dependency.  Limitation: the link text is opaque; diffing is
+meaningless; manual editing is impossible.
+
+** Named block + babel eval — the shar pattern (this document's approach)
+
+The approach used in ~mordhau-inline.org~ maps exactly to shar:
+
+| shar concept         | org-mode equivalent                  |
+|----------------------+--------------------------------------|
+| uuencoded block      | ~#+name: img-foo~ ~#+begin_src text~ |
+| ~uudecode~           | ~base64-decode-string~               |
+| Output path in begin | ~/tmp/foo.jpg~                       |
+| Shell execution      | ~C-c C-c~ on emacs-lisp block        |
+| ~cat > file~ extract | ~with-temp-file~                     |
+| Inline display       | ~org-toggle-inline-images~           |
+
+#+begin_src org :eval no
+#+name: mordhau-1-b64
+#+begin_src text
+/9j/4AAQ...
+#+end_src
+
+#+begin_src emacs-lisp :results none
+(with-temp-file "/tmp/mordhau-1.jpg"
+  (set-buffer-multibyte nil)
+  (insert (base64-decode-string
+            (string-trim (org-babel-ref-resolve "mordhau-1-b64")))))
+(org-toggle-inline-images)
+#+end_src
+
+[[/tmp/mordhau-1.jpg]]
+#+end_src
+
+Advantages over the data: URI approach:
+- Named blocks are human-navigable (~org-babel-goto-named-src-block~)
+- Can be individually updated by replacing one named block
+- Works in Emacs versions that do not support data: URI rendering
+- Decode step is explicit, auditable, and tangleable
+
+Disadvantage: requires /tmp/ write; not 100% self-contained at rest,
+only at display-time.
+
+** HTML export with embedded images
+
+For export to a single self-contained HTML file, ~org-html-export~ can
+be patched to emit data URIs:
+
+#+begin_src emacs-lisp :eval no
+(defun org-html--format-image (source attributes info)
+  (let* ((ext (file-name-extension source))
+         (prefix (if (string= "svg" ext)
+                     "data:image/svg+xml;base64,"
+                   "data:;base64,"))
+         (data (with-temp-buffer
+                 (url-insert-file-contents source)
+                 (buffer-string)))
+         (data-url (concat prefix (base64-encode-string data)))
+         (attributes (org-combine-plists `(:src ,data-url) attributes)))
+    (org-html-close-tag "img"
+      (org-html--make-attribute-string attributes) info)))
+#+end_src
+
+Source: Niklas Fasching, ~org-html-export-inline-images~, 2018.
+
+This is the build-tool pattern (Webpack inlining) reimplemented as an
+Emacs Lisp advice.
+
+* Markdown
+
+Markdown has no native binary embedding mechanism.  All approaches are
+workarounds:
+
+| Approach                     | How                                         | Portable? |
+|------------------------------+---------------------------------------------+-----------|
+| External file reference      | ~![alt](path/to/img.png)~                   | No        |
+| Data URI in img tag          | ~<img src="data:image/...;base64,...">~     | Yes       |
+| GitHub-hosted image          | Raw URL to committed asset                  | Fragile   |
+| HTML comment with b64        | Non-standard; renderer-dependent            | No        |
+
+GitHub Gists render Markdown but do not support directory-relative
+images.  The only portable single-file approach for gists is inline
+HTML with a data URI.
+
+#+begin_src markdown :eval no
+<img src="data:image/jpeg;base64,/9j/..." width="400" />
+#+end_src
+
+This is identical to RFC 2397 in an HTML context, tunneled through
+Markdown's HTML passthrough.
+
+* Note-Taking Systems
+
+** Jupyter Notebook (~.ipynb~)
+
+The ~.ipynb~ format is JSON.  Images in output cells are stored as
+base64 under ~output_type: display_data~:
+
+#+begin_src json :eval no
+{
+  "output_type": "display_data",
+  "data": {
+    "image/png": "iVBORw0KGgo..."
+  }
+}
+#+end_src
+
+Drag-and-drop into a Markdown cell encodes the image as base64 and
+embeds it directly in the cell source.  This is the ~.docx~ model
+applied to JSON: binary assets encoded inside a text container.
+
+Self-containment rationale (Jupyter issue #613, 2015): "using an
+external file defeats the goal of having the notebook be a stand-alone
+file that contains everything."  The tension between self-containment
+and "too messy for large images" is explicitly acknowledged.
+
+** Obsidian
+
+Obsidian's default model is ~![[filename.png]]~ transclusion: the
+image lives in the vault as a separate file.  Self-containment is
+explicitly not the default.
+
+The ~image-inline~ plugin converts images to base64 and embeds them in
+note Markdown, with a configurable threshold for when to encode vs.
+link.  This replicates the shar/MIME pattern.
+
+Roam Research uses a different embedding syntax: ~{{embed: ((NODE_ID))}}~
+— content-addressed transclusion by ID, not file path.
+
+** Notion, Bear, Logseq
+
+All use external attachment models with content-addressable storage or
+CDN-hosted images.  None embed base64 in the note source by default.
+Single-file self-containment is not a design goal.
+
+* Gists
+
+A GitHub Gist is a single-file text artifact with no directory
+context.  Images cannot be hosted inside a gist.  Options:
+
+| Method            | Approach                                        |
+|-------------------+-------------------------------------------------|
+| External URL      | GitHub raw asset from a repo                   |
+| Imgur / Cloudinary| External CDN                                    |
+| Data URI in HTML  | ~<img src="data:...;base64,...">~               |
+| SVG inline        | SVG with embedded ~<image xlink:href="data:..."~ |
+
+The data URI approach produces gists that render in GitHub's Markdown
+viewer without any external dependencies — the gist /is/ the image
+archive.  Size limit is the constraint (~10 MB per gist~).
+
+For ~mordhau-inline.org~, the equivalent approach would be a gist
+containing the org file with the named base64 blocks.  The gist is
+self-contained; the babel eval block reconstructs the images at display
+time on any machine with Emacs + org-mode.
+
+* Comparative Summary
+
+#+begin_src markdown
+Timeline of the "binary in text" pattern:
+
+1980  uuencode (BSD 4.0) — UUCP / email
+1983  BinHex — Apple II / Mac
+1987  PEM printable encoding — precursor to MIME Base64
+1988  GNU shar — shell archive with uuencoded blocks
+1992  MIME RFC 1341 — formalizes Content-Transfer-Encoding
+1996  MIME RFC 2045/2046 — current base64 alphabet
+1998  RFC 2397 — data: URI scheme for web
+2001  yEnc — Usenet binary posts (near-binary efficiency)
+2012  org-mode mailing list discussion: embed base64 in org (MAYBE list)
+2015  Jupyter #613: "self-contained notebook" tension documented
+2018  Marcin Borkowski: named-block + babel decode pattern for org
+2018  Niklas Fasching: org-html-export with data URI images
+2024  org-inline-image-fix: data: URI rendering in org buffers
+2026  mordhau-inline.org: named-block shar pattern for demo images
+#+end_src
+
+* Design Tensions (Constant Across All Systems)
+
+Every implementation faces the same five tradeoffs:
+
+1. *Self-containment vs. caching*
+   Embedded data cannot be cached independently.  The entire container
+   must be re-fetched when any embedded asset changes.
+
+2. *Portability vs. size*
+   33% overhead is acceptable for small assets; catastrophic for large
+   ones.  Every system recommends a threshold (~4 KB for web, ~10 KB
+   for notebooks).
+
+3. *Readability vs. density*
+   Base64 is opaque.  Diffs are meaningless.  Git history for an org
+   file with embedded images is useless for the image content.
+
+4. *Decode-at-rest vs. decode-on-display*
+   shar / named-block-babel: payload is inert text until explicitly
+   decoded.
+   data: URI / MIME: payload is decoded by the renderer transparently.
+
+5. *"It's just text" vs. it's really binary*
+   The org-mode mailing list debate: "inclusion of ascii-encoded binary
+   files in org violates the 'it's just text' spirit."  The
+   counter-argument: if the binary is small and the use case is demo /
+   reference, the tradeoff is justified.
+
+* Org-mode Specific: Three Approaches Compared
+
+| Approach              | Self-contained? | Renderable in Emacs? | Diffable? | Use case              |
+|-----------------------+-----------------+----------------------+-----------+-----------------------|
+| ~[[file:...]]~        | No              | Yes (C-c C-x C-v)    | Yes       | Working notes         |
+| ~[[data:...;b64,...]]~| Yes (in-buffer) | Recent Emacs only    | No        | Single-file publish   |
+| Named block + babel   | Yes (at eval)   | Yes (C-c C-c)        | No        | Demo / literate docs  |
+| org-attach            | No (directory)  | Yes                  | No        | Long-term archive     |
+| HTML export + b64     | Yes (in export) | No (HTML only)       | No        | Share as single HTML  |
+
+The named-block + babel approach is the most conservative: it works on
+any Emacs with org-mode, makes the decode step explicit and auditable,
+and the base64 blocks can be individually replaced without touching the
+rest of the document.
+
+* References
+
+- uuencoding: https://en.wikipedia.org/wiki/Uuencoding
+- GNU sharutils: https://www.gnu.org/software/sharutils/manual/sharutils.html
+- RFC 2045 (MIME Part One): https://www.rfc-editor.org/rfc/rfc2045
+- RFC 2387 (multipart/related): https://www.rfc-editor.org/rfc/rfc2387.html
+- RFC 2397 (data: URI): https://www.rfc-editor.org/rfc/rfc2397
+- Base64 Wikipedia: https://en.wikipedia.org/wiki/Base64
+- CSS-Tricks Data URIs: https://css-tricks.com/data-uris/
+- DebugBear base64 performance: https://www.debugbear.com/blog/base64-data-urls-html-css
+- Web Performance Calendar (dangers): https://calendar.perfplanet.com/2020/the-dangers-of-data-uris/
+- Org manual, Images: https://orgmode.org/manual/Images.html
+- Borkowski, embedding in org (2018): https://mbork.pl/2018-08-18_Embedding_files_in_Org-mode_revisited
+- Fasching, org HTML inline images: https://niklasfasching.de/posts/org-html-export-inline-images/
+- org-inline-image-fix: https://github.com/misohena/org-inline-image-fix
+- Jupyter #613: https://github.com/jupyter/notebook/issues/613
+- Obsidian image-inline plugin: https://github.com/ZackaryW/obsidian-image-inline
+
+* Addendum: Formats and Contexts Not in the Original Survey
+
+** X11: Images as C Source Code
+
+*** XBM — X BitMap (X10 ~1982, X11 standardized 1987)
+
+The most radical inversion of the "binary in text" pattern: the image
+/is/ C source code.  No encoding step.  No decoder required.  The
+compiler is the decoder; the linker is the embedding mechanism.
+
+#+begin_src c :eval no
+/* XBM X11 format — directly #include-able in a C program */
+#define xlogo16_width  16
+#define xlogo16_height 16
+static unsigned char xlogo16_bits[] = {
+   0x0f, 0x80, 0x1e, 0x80, 0x3c, 0x40, 0x78, 0x20,
+   0x78, 0x10, 0xf0, 0x08, 0xe0, 0x09, 0xc0, 0x05,
+   0xc0, 0x02, 0x40, 0x07, 0x20, 0x0f, 0x20, 0x1e,
+   0x10, 0x1e, 0x08, 0x3c, 0x04, 0x78, 0x02, 0xf0 };
+#+end_src
+
+Properties:
+- Each pixel = 1 bit; each byte = 8 pixels packed LSB-first
+- Monochrome only; no alpha; no color
+- Multiple images in one .h file (named array per image)
+- Hotspot metadata (~#define~ for cursor tip) embedded as preprocessor constants
+- Overhead: ~5× size expansion (4 chars "0x" + 2 hex + ", " per byte)
+- Still in use: Openbox window manager title bar buttons; embedded MCU GUIs
+
+X11 source distribution shipped XBM files in ~/bitmaps/~ directory.
+The Xlib functions ~XCreateBitmapFromData~ / ~XReadBitmapFile~ / ~XWriteBitmapFile~
+operated on the same format in memory and on disk — the file format
+/is/ the in-memory format is the source code format.
+
+This is the "holding it wrong" version of image embedding: the channel
+constraint (compiler toolchain) forces images to become source, making
+the image directly compilable, diffable, and patchable with standard
+text tools — at the cost of being monochrome and ~5× oversized.
+
+*** XPM — X PixMap (1989, Dardailler & Nahaboo, Bull Research)
+
+Color successor to XBM.  Still C source syntax, but uses a palette
+(colormap) and character-per-pixel encoding instead of hex bytes.
+
+#+begin_src c :eval no
+/* XPM */
+static char * XFACE[] = {
+"48 4 2 1",           /* width height ncolors chars_per_pixel */
+"a c #ffffff",        /* palette: char -> X11 color name or hex */
+"b c #000000",
+"abaabaababaaabaabababaabaabaababaabaaababaabaaab",
+"abaabaababaaabaabababaabaabaababaabaaababaabaaab",
+...
+};
+#+end_src
+
+Key innovations over XBM:
+- Indexed color palette: any character → any X11 color name or hex
+- Transparency via ~None~ color keyword
+- "Symbolic" colors: context-sensitive (~s border c blue~) for theming
+- Multi-char pixels for >64 colors (~aa~ through ~pp~ for 256-color
+  support — note the similarity to Base64 alphabet sizing logic)
+
+XPM3 (1991) finalized the C wrapper syntax.  Files use ~.xpm~ extension
+but are valid C; compilers accept them as ~.h~ or ~.c~ with no change.
+This remains in active use: PuTTY ships ~xpmputty.c~, Emacs 28 ships
+~mh-logo.xpm~, LibreOffice updater ships ~progressui_gtk_icon.h~.
+
+The XPM alphabet for 16 colors (~a~–~p~) and then 256 colors (~aa~–~pp~)
+is an independent reinvention of the same alphabet-expansion logic
+that drives Base64 vs Ascii85.
+
+*** X-Face (Bell Labs lineage, James Ashton; ~1990)
+
+A 48×48 pixel 1-bit face image embedded in email/Usenet message
+headers as a custom ~X-Face:~ header.  The encoder is ~compface~
+(compress + face), which applies arithmetic coding to achieve
+significantly better than base64 density for the constrained pixel
+domain.
+
+#+begin_src text
+X-Face: jx]Pk"3IoM&#)a#RB6p%|EHt9%2k^EzmZke#0mq+jf=\2QMp`-E3_Uk}^UiaOy^C,
+  YFBvkwHT7O6wI;]fVKq~jN?1e[(_'q8[`7c~L}[@nt|A,71:yiuL"so5hmH*]e7AEy
+  0OIdHgq-s${x]aw1Khn+<]bzbXzYT!a&~Pk7p!u?hPN,...
+#+end_src
+
+Properties:
+- Uses all printable ASCII except space and colon (~!~–~~~ minus ~:~)
+- Arithmetic coding (not base64) — much higher density for face-like images
+- Fits in email headers (RFC 822 header value)
+- Displayed inline by Gnus, KMail, Sylpheed, Mutt (with plugin)
+
+The ~Face:~ successor (2005) uses base64-encoded PNG in the same header
+slot — trading the custom arithmetic codec for the standard format.
+
+Lineage note: XBM (C arrays) → ~compface~ takes a 48×48 XBM and
+produces the compressed ASCII payload.  The XBM-to-X-Face pipeline is
+a chain of two text-encoding techniques.
+
+Extended X-Face variants (~X-Face-el~, Datula) stack multiple headers
+to approximate grayscale, color, and animation — the same
+multi-part/multi-header pattern as MIME ~multipart/related~.
+
+** Mac: The Resource Fork Problem (1984–2001)
+
+The Macintosh HFS filesystem stored every file as /two forks/: a data
+fork (unstructured bytes) and a resource fork (structured typed
+resources: icons, strings, menus, code, sounds, cursors, dialogs).
+A Mac application's entire UI lived in the resource fork.
+
+The constraint: non-Mac systems (CompuServe, Unix FTP servers, Usenet)
+had no concept of multiple forks.  Transferring a Mac file over any
+standard channel silently discarded the resource fork — rendering
+applications non-functional and documents incomplete.
+
+*** BinHex lineage (Tim Mann 1981 → Mac ports 1984 → BinHex 4.0 .hqx)
+
+#+begin_src text
+Timeline:
+1981  Tim Mann: BinHex for TRS-80 — hex encoding for CompuServe
+1984  William Davis: Mac port (BASIC) — data fork only
+1984  BinHex 3: both forks (still BASIC, slow)
+1984  Yves Lempereur: assembly port → "BinHex 1.0" (100× faster)
+      BinHex 2.0: 8-to-6 encoding (64-char alphabet, like base64)
+      Extension changed .hex → .hcx
+      BinHex 4.0: safer 64-char alphabet, RLE90 compression
+      Extension → .hqx (the dominant format through the 1990s)
+1985  BinHex 5.0: uses MacBinary to combine forks, then encodes
+#+end_src
+
+BinHex 4.0 (.hqx) format:
+#+begin_src text
+(This file must be converted with BinHex 4.0)
+
+:$f*TEQKPH#edCA0d,R0TG!"ZFh4iDK3!,)%i!!!!Rk!!!&3,j#3!
+,)%i!!!!"8V:...
+:
+#+end_src
+
+The ~:~ delimiters bracket the encoded data — the same boundary-delimiter
+pattern as MIME and uuencode's ~begin~/~end~.
+
+*** MacBinary (1985, Dennis Brothers + Lempereur + Chesley)
+
+MacBinary abandoned ASCII armoring entirely: it combined both forks
+into a single /binary/ file with a structured header, for 8-bit-clean
+channels (FTP, direct serial).  For ASCII-only channels, the .bin was
+then BinHexed.  The combination: MacBinary → BinHex is analogous to
+the Unix idiom: ~tar | compress | uuencode~.
+
+Versions:
+- MacBinary (1985) — original
+- MacBinary II (1987) — Mac OS changes
+- MacBinary III (1996) — Mac OS 8
+- AppleSingle / AppleDouble — Apple's parallel standards, little adopted
+
+The resource fork problem never fully resolved.  OS X (2001) deprecated
+the resource fork; Finder metadata migrated to extended attributes
+(~com.apple.FinderInfo~, ~com.apple.ResourceFork~) on HFS+/APFS.
+~tar -czf~ on macOS preserves these; standard ~tar~ on Linux silently
+drops them — the same fork-loss problem, now expressed as xattr loss.
+
+** PostScript / PDF: Ascii85 (Paul Rutter, ~btoa~, ~1990)
+
+PostScript and PDF are text-based languages that must embed binary image
+and font data.  Adobe chose Ascii85 (Base85) as their standard encoding:
+
+#+begin_src text
+4 bytes → 5 printable ASCII chars (! through u)
+Special case: 4 zero bytes → single 'z' (zero-run compression)
+Delimiters: <~ ... ~>
+Overhead: 25% (vs 33% for base64, 37% for uuencode)
+#+end_src
+
+#+begin_src text
+<~9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,
+O<DJ+*.@<*K0@<6L(Df-\0Ec5e;DffZ(EZee.Bl.9pF"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKY
+i(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIa
+l(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G
+>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>
+#+end_src
+
+Ascii85 is used for ~ASCII85Decode~ filter in PDF/PostScript streams —
+directly embedded in the document at the use site, not in a separate
+file.  An image in a PDF is literally:
+
+#+begin_src text
+BI                     % Begin Inline Image
+  /W 640 /H 480
+  /CS /RGB /BPC 8
+  /F [/A85 /Fl]        % ASCII85 + Flate (deflate) filters
+ID                     % Image Data follows
+<~ ... ascii85 data ... ~>
+EI                     % End Inline Image
+#+end_src
+
+This is the deepest inlining of the pattern: the image is inside the
+rendering instruction stream, encoded inline, with filter chaining
+(ASCII85 → deflate → raw pixels) specified in the image dictionary.
+
+<br>
+
+Note that Ascii85 is Git's own encoding for binary patches — git
+chose the same codec Adobe chose for PostScript, with a slightly different
+alphabet variant.
+
+** Git Binary Patches (2005–)
+
+Standard unified diff (~patch -p1~) cannot represent binary changes.
+Git's ~--binary~ flag produces a transportable binary patch using a
+combination of deflate compression and a Git-specific Base85 variant:
+
+#+begin_src text
+diff --git a/images/mordhau.jpg b/images/mordhau.jpg
+new file mode 100644
+index 0000000..f91f164
+GIT binary patch
+literal 21360
+zcmV(zKp3^)T4*^jL0KkKSo5SQ|NsC{|NsC{|NsC{|Ns9_6951J1^@t6y8r+H
+zT4<65`27YJ_xB5_{r>=(00000|NsC0|Ns9E0RR9100000000000000000000000
+...
+literal 0
+HcmV?d00001
+#+end_src
+
+Format: ~literal <uncompressed-size>~ header + Git's Base85 variant
+(different alphabet from Ascii85) + zlib-deflated content.
+
+The ~HcmV?d00001~ trailer on the empty side is the Base85 encoding of
+a zero-length zlib stream — a recognizable signature now that you know
+to look for it.
+
+Key design choice: git chose to embed the /entire new version/ of the
+binary file in the patch (not a delta), ensuring the patch applies
+correctly regardless of the local state.  This trades patch size for
+reliability — the same tradeoff as shar embedding complete uuencoded
+files vs. a delta format.
+
+Git binary patch workflow:
+#+begin_src bash :eval no
+# Create: embed binary in patch
+git diff --binary > changes.patch
+
+# Or for email distribution (format-patch includes full MIME headers):
+git format-patch -1 HEAD --stdout > 0001-add-image.patch
+
+# Apply:
+git apply changes.patch
+#+end_src
+
+The Linux kernel mailing list (LKML) specifically cannot handle binary
+patches because kernel patches are distributed as plain-text emails
+and replicated via ~patch -p1~ — the same 7-bit-clean channel problem
+that drove uuencode in 1980.
+
+** Consolidated Taxonomy
+
+#+begin_src markdown
+Dimension 1: Encoding strategy
+  Hex literal    XBM (0x13), early BinHex (.hex)
+  Base64/MIME    PEM (1987), MIME (1992), data: URI (1998)
+  Base85/Ascii85 PostScript/PDF (~1990), Git binary patches (2005)
+  Custom codec   X-Face compface (arithmetic coding, ~1990)
+  Char-per-pixel XPM palette encoding (1989)
+
+Dimension 2: Embedding depth
+  Source code    XBM (C #include), XPM (C static char*)
+  Header field   X-Face: (email/Usenet header)
+  Body block     MIME part, shar heredoc, BinHex .hqx
+  URI inline     data:image/...;base64,... (HTML/CSS/org)
+  Named block    org #+name: + babel eval
+  Stream filter  PDF inline image (BI/EI), PostScript ASCII85 filter
+
+Dimension 3: Channel constraint driving the encoding
+  7-bit SMTP     uuencode, BinHex, MIME base64, X-Face
+  Text editor    XBM (must be compilable C), XPM (ditto)
+  patch/diff     Git --binary (standard patch can't handle binary)
+  Single-file    shar, mordhau-inline.org, .ipynb, .hqx
+  No HFS         MacBinary, BinHex fork-preservation
+
+Dimension 4: Decode mechanism
+  C compiler     XBM, XPM (compile-time)
+  Shell          shar (runtime, /bin/sh)
+  Mail client    X-Face (display-time, compface)
+  Browser        data: URI (transparent)
+  Babel eval     org named-block pattern (C-c C-c, explicit)
+  git apply      Git binary patch (apply-time)
+  PDF renderer   Inline image stream (transparent)
+#+end_src
+
+** Updated Timeline
+
+#+begin_src markdown
+1980  uuencode — BSD 4.0, UUCP/email
+1981  BinHex — TRS-80, hex encoding, CompuServe
+1982  XBM X10 — MIT Project Athena, C source images
+1983  BinHex Mac port — CompuServe/Mac, dual-fork awareness
+1984  BinHex 4.0 (.hqx) — dominant Mac ASCII encoding
+1985  MacBinary — binary dual-fork container
+1986  XBM X11 — 8-bit byte standard
+1987  PEM Base64 (RFC 989) — precursor to MIME base64
+1988  GNU shar — shell archives with uuencoded blocks
+1989  XPM — color C-source images, X11
+1990  X-Face (compface) — 48×48 compressed face in email headers
+      Ascii85 (btoa) — 25% overhead, PostScript/PDF use
+1991  XPM3 — final C wrapper format
+1992  MIME RFC 1341 — Content-Transfer-Encoding standardized
+1996  MIME RFC 2045/2046 — current base64 alphabet
+1998  RFC 2397 — data: URI scheme for web
+2001  yEnc — Usenet binary posts
+2005  git --binary — Ascii85 variant + deflate in patches
+      Face: header — base64 PNG in email header (X-Face successor)
+2012  org-mode: embed base64 discussion (org mailing list)
+2015  Jupyter #613: self-contained notebook tension
+2018  org babel decode pattern (Borkowski)
+2024  org data: URI rendering (org-inline-image-fix)
+2026  mordhau-inline.org — named-block shar pattern for demo images
+#+end_src
+
+** Additional References
+
+- XBM Wikipedia: https://en.wikipedia.org/wiki/X_BitMap
+- XPM Wikipedia: https://en.wikipedia.org/wiki/X_PixMap
+- X-Face Wikipedia: https://en.wikipedia.org/wiki/X-Face
+- X-Face format details: http://fileformats.archiveteam.org/wiki/X-Face
+- BinHex Wikipedia: https://en.wikipedia.org/wiki/BinHex
+- MacBinary Wikipedia: https://en.wikipedia.org/wiki/MacBinary
+- Ascii85 Wikipedia: https://en.wikipedia.org/wiki/Ascii85
+- Git binary patch format: https://git-scm.com/docs/git-format-patch
+- Git binary patch internals: https://github.com/cscorley/whatthepatch/issues/4

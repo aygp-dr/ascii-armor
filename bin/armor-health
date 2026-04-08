@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Validates ascii-armor repository prerequisites and state
+# Exit: 0 ok, 1 degraded, 2 broken
+
+set -u
+
+checks=()
+status=0
+
+check_hard() {
+  local name="$1" cmd="$2"
+  if eval "$cmd" &>/dev/null; then
+    checks+=("{\"check\":\"$name\",\"status\":\"ok\"}")
+  else
+    checks+=("{\"check\":\"$name\",\"status\":\"broken\"}")
+    status=2
+  fi
+}
+
+check_soft() {
+  local name="$1" cmd="$2"
+  if eval "$cmd" &>/dev/null; then
+    checks+=("{\"check\":\"$name\",\"status\":\"ok\"}")
+  else
+    checks+=("{\"check\":\"$name\",\"status\":\"degraded\"}")
+    [[ $status -lt 1 ]] && status=1
+  fi
+}
+
+# Hard requirements
+check_hard "spec.org"        "test -f spec.org"
+check_hard "CLAUDE.md"       "test -f CLAUDE.md"
+check_hard "beads"           "test -d .beads"
+check_hard "git"             "git rev-parse --git-dir"
+check_hard "emacs"           "command -v emacs"
+check_hard "base64"          "command -v base64"
+check_hard "uuencode"        "command -v uuencode || command -v uuencode-base64"
+
+# Soft requirements (degraded if missing)
+check_soft "mordhau-inline"  "test -f mordhau-inline.org"
+check_soft "examples/"       "test -d examples"
+check_soft "armor-check"     "test -x bin/armor-check"
+check_soft "no TODOs"        "test \$(grep -c TODO spec.org 2>/dev/null || echo 99) -eq 0"
+
+# Output JSON
+echo "{\"status\":$status,\"checks\":[$(IFS=,; echo "${checks[*]}")]}"
+exit $status
