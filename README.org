@@ -52,7 +52,7 @@ The solutions all converge on the same structure:
 | 1987 | PEM/Base64    | Privacy-Enhanced Mail       | ~33%     |
 | 1989 | XBM/XPM       | X11 icons/cursors (C source)| ~400%    |
 | 1990 | X-Face        | Pine/Mutt/Gnus email faces  | custom   |
-| 1990 | Ascii85       | PostScript/PDF              | ~25%     |
+| 1985 | Ascii85       | PostScript/PDF (btoa)       | ~25%     |
 | 1992 | MIME Base64   | RFC 2045 email              | ~33%     |
 | 1998 | data: URI     | RFC 2397 web embedding      | ~33%     |
 | 2005 | Git binary    | Patch files                 | ~25%     |
@@ -93,7 +93,7 @@ The solutions all converge on the same structure:
 |------+------------------+---------------------------------+--------------------------|
 | 1976 | Kansas City Std  | Cassette tape (audio)           | 1200/2400 Hz FSK         |
 | 1980 | BASICODE         | Radio broadcast (Netherlands)   | NOS/BBC/WDR/DDR          |
-| 1978 | NOAA APT         | VHF radio (137 MHz)             | Weather satellite images |
+| 1963 | NOAA APT         | VHF radio (137 MHz)             | TIROS-8 weather sat      |
 | 2020 | LoRa/Meshtastic  | Sub-GHz radio (900 MHz)         | Text over mesh networks  |
 | 2024 | NASA DSOC        | Laser (1550nm optical)          | Deep space optical comm  |
 
