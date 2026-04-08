@@ -58,6 +58,25 @@ The solutions all converge on the same structure:
 | 2005 | Git binary    | Patch files                 | ~25%     |
 | 2018 | org-mode      | Literate programming        | ~33%     |
 
+** API/Schema Specifications (formalized patterns)
+
+| Year | Format         | Channel Constraint            | Spec                          |
+|------+----------------+-------------------------------+-------------------------------|
+| 2000 | SOAP base64    | XML text                      | xs:base64Binary               |
+| 2005 | MTOM/XOP       | SOAP + MIME attachment        | W3C (avoids base64 overhead)  |
+| 2013 | JSON Schema    | JSON text                     | contentEncoding + contentMediaType |
+| 2017 | OpenAPI 3.0    | REST API response             | format: byte / binary         |
+| 2021 | OpenAPI 3.1    | REST API response             | JSON Schema contentEncoding   |
+
+#+begin_src json
+// JSON Schema for base64-encoded PNG
+{
+  "type": "string",
+  "contentEncoding": "base64",
+  "contentMediaType": "image/png"
+}
+#+end_src
+
 ** Serial/Modem Variants (the direct ancestors)
 
 | Year | Format    | Channel Constraint            | Notes                        |
@@ -191,6 +210,9 @@ ascii-armor/
 - [[https://en.wikipedia.org/wiki/Kansas_City_standard][Kansas City Standard (Wikipedia)]]
 - [[https://en.wikipedia.org/wiki/BASICODE][BASICODE (Wikipedia)]]
 - [[https://www.rtl-sdr.com/rtl-sdr-tutorial-receiving-noaa-weather-satellite-images/][NOAA APT Reception (RTL-SDR)]]
+- [[https://json-schema.org/understanding-json-schema/reference/non_json_data][JSON Schema: contentEncoding]]
+- [[https://spec.openapis.org/oas/v3.1.0][OpenAPI 3.1 Specification]]
+- [[https://docs.oracle.com/html/E13734_01/mtom.htm][MTOM/XOP Binary Optimization]]
 
 * License
 
