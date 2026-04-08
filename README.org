@@ -58,6 +58,15 @@ The solutions all converge on the same structure:
 | 2005 | Git binary    | Patch files                 | ~25%     |
 | 2018 | org-mode      | Literate programming        | ~33%     |
 
+** Audio/Radio Variants (same pattern, different channel)
+
+| Year | Format           | Channel Constraint              | Notes                    |
+|------+------------------+---------------------------------+--------------------------|
+| 1976 | Kansas City Std  | Cassette tape (audio)           | 1200/2400 Hz FSK         |
+| 1980 | BASICODE         | Radio broadcast (Netherlands)   | NOS/BBC/WDR/DDR          |
+| 1978 | NOAA APT         | VHF radio (137 MHz)             | Weather satellite images |
+| 2020 | LoRa/Meshtastic  | Sub-GHz radio (900 MHz)         | Text over mesh networks  |
+
 #+ATTR_ORG: :width 400
 [[file:resources/gladiatoria-kk5013-28v.jpg]]
 
@@ -168,6 +177,9 @@ ascii-armor/
 - [[https://en.wikipedia.org/wiki/X_BitMap][XBM (Wikipedia)]]
 - [[https://en.wikipedia.org/wiki/Ascii85][Ascii85 (Wikipedia)]]
 - [[https://orgmode.org/manual/Working-with-Source-Code.html][Org Babel Manual]]
+- [[https://en.wikipedia.org/wiki/Kansas_City_standard][Kansas City Standard (Wikipedia)]]
+- [[https://en.wikipedia.org/wiki/BASICODE][BASICODE (Wikipedia)]]
+- [[https://www.rtl-sdr.com/rtl-sdr-tutorial-receiving-noaa-weather-satellite-images/][NOAA APT Reception (RTL-SDR)]]
 
 * License
 
