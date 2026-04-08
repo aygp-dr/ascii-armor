@@ -1,0 +1,6 @@
+/* XBM: X BitMap format - monochrome 1-bit depth */
+/* Binary-in-text for X11 cursors and icons since 1989 */
+#define sample_width 8
+#define sample_height 8
+static unsigned char sample_bits[] = {
+   0xff, 0x81, 0xbd, 0xa5, 0xa5, 0xbd, 0x81, 0xff };

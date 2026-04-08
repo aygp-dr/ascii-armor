@@ -1,0 +1,17 @@
+/* XPM: X PixMap format - indexed color with named colors */
+/* Binary-in-text for X11 icons since 1989 */
+static char *sample_xpm[] = {
+/* columns rows colors chars-per-pixel */
+"8 8 2 1 ",
+"  c black",
+". c white",
+/* pixels */
+"........",
+". ..... ",
+". ... . ",
+". . . . ",
+". . . . ",
+". ... . ",
+". ..... ",
+"........"
+};
