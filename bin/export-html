@@ -1,0 +1,113 @@
+#!/bin/sh
+# export-html: Export org files to self-contained HTML with embedded images
+# Usage: export-html [file.org...]
+# Output: file.html in same directory
+
+set -e
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PROJECT_DIR=$(dirname "$SCRIPT_DIR")
+
+export_org_to_html() {
+    orgfile="$1"
+    htmlfile="${orgfile%.org}.html"
+
+    echo "Exporting: $orgfile -> $htmlfile"
+
+    emacs --batch \
+        --eval "(require 'org)" \
+        --eval "(require 'ox-html)" \
+        --eval "(setq org-html-doctype \"html5\")" \
+        --eval "(setq org-html-head-include-default-style nil)" \
+        --eval "(setq org-html-head \"<style>
+body { max-width: 800px; margin: 0 auto; padding: 2em; font-family: Georgia, serif; line-height: 1.6; }
+pre, code { background: #f4f4f4; padding: 0.5em; overflow-x: auto; }
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ddd; padding: 0.5em; }
+blockquote { border-left: 3px solid #ccc; margin: 1em 0; padding-left: 1em; color: #666; }
+img { max-width: 100%; height: auto; }
+</style>\")" \
+        --eval "(setq org-html-inline-images t)" \
+        --eval "(setq org-export-with-toc t)" \
+        --eval "(setq org-export-with-section-numbers nil)" \
+        --eval "(setq org-export-with-broken-links 'mark)" \
+        --visit="$orgfile" \
+        --funcall org-html-export-to-html \
+        2>/dev/null
+
+    if [ -f "$htmlfile" ]; then
+        # Post-process: embed images as data URIs
+        embed_images "$htmlfile"
+        echo "  Created: $htmlfile"
+    else
+        echo "  ERROR: Export failed"
+        return 1
+    fi
+}
+
+embed_images() {
+    htmlfile="$1"
+    tmpfile=$(mktemp)
+
+    # Find image references and replace with data URIs
+    python3 << EOF
+import re
+import base64
+import os
+from pathlib import Path
+
+htmlfile = "$htmlfile"
+html_dir = os.path.dirname(os.path.abspath(htmlfile))
+
+with open(htmlfile, 'r', encoding='utf-8') as f:
+    content = f.read()
+
+def embed_image(match):
+    src = match.group(1)
+    # Handle relative paths
+    if not src.startswith(('http://', 'https://', 'data:')):
+        img_path = os.path.join(html_dir, src)
+        if os.path.exists(img_path):
+            ext = Path(img_path).suffix.lower()
+            mime_types = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.svg': 'image/svg+xml',
+            }
+            mime = mime_types.get(ext, 'application/octet-stream')
+            with open(img_path, 'rb') as f:
+                b64 = base64.b64encode(f.read()).decode('ascii')
+            return f'src="data:{mime};base64,{b64}"'
+    return match.group(0)
+
+# Replace img src attributes
+content = re.sub(r'src="([^"]+)"', embed_image, content)
+
+with open(htmlfile, 'w', encoding='utf-8') as f:
+    f.write(content)
+EOF
+
+    rm -f "$tmpfile"
+}
+
+if [ $# -eq 0 ]; then
+    # Default: export main org files
+    cd "$PROJECT_DIR"
+    export_org_to_html "spec.org"
+    export_org_to_html "mordhau-inline.org"
+    export_org_to_html "README.org"
+else
+    for file in "$@"; do
+        if [ -f "$file" ]; then
+            export_org_to_html "$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+        else
+            echo "Not found: $file"
+            exit 1
+        fi
+    done
+fi
+
+echo ""
+echo "Done. HTML files created with embedded images."

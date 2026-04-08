@@ -1,0 +1,10 @@
+# Build artifacts
+*.html
+
+# Python
+__pycache__/
+.hypothesis/
+
+# Temp files
+*.pyc
+*~
