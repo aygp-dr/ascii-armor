@@ -66,6 +66,7 @@ The solutions all converge on the same structure:
 | 1980 | BASICODE         | Radio broadcast (Netherlands)   | NOS/BBC/WDR/DDR          |
 | 1978 | NOAA APT         | VHF radio (137 MHz)             | Weather satellite images |
 | 2020 | LoRa/Meshtastic  | Sub-GHz radio (900 MHz)         | Text over mesh networks  |
+| 2024 | NASA DSOC        | Laser (1550nm optical)          | Deep space optical comm  |
 
 #+ATTR_ORG: :width 400
 [[file:resources/gladiatoria-kk5013-28v.jpg]]
