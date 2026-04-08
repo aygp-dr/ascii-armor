@@ -2,6 +2,9 @@
 
 All images are from Wikimedia Commons (public domain).
 
+**Note**: Images resized to 400px width for inline org-mode display.
+Originals preserved in `original/` subdirectory.
+
 ## codex-wallerstein-107v.jpg
 - **Source**: [Codex Wallerstein folio 107v](https://commons.wikimedia.org/wiki/File:Augsburg_Cod.I.6.4%C2%BA.2_(Codex_Wallerstein)_107v.jpg)
 - **Manuscript**: Codex Wallerstein (Cod.I.6.4º.2), Universitätsbibliothek Augsburg
